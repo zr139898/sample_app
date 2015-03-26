@@ -7,17 +7,18 @@
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/ssl.h>
 #include <openssl/x509v3.h>
 
 #ifndef WIN32
 #include <pthread.h>
-#define THREAD_CC
+#define THREAD_CC *
 #define THREAD_TYPE pthread_t
 #define THREAD_CREATE(tid, entry, arg) pthread_create(&(tid), NULL, \
-            (entry), (arg))
+        (entry), (arg))
 #else
 #include <windows.h>
-#define THREAD_CC _ _cdecl
+#define THREAD_CC __cdecl
 #define THREAD_TYPE DWORD
 #define THREAD_CREATE(tid, entry, arg) do { _beginthread((entry), 0, (arg)); \
         (tid) = GetCurrentThreadId(); \
@@ -25,10 +26,10 @@
 #endif
 
 #define PORT "6001"
-#define SERVER "splat.zork.org"
-#define CLIENT "shell.zork.org"
+#define SERVER "127.0.0.1"
+#define CLIENT "127.0.0.1"
 
-#define int_error(msg) handle_error(_ _FILE_ _, _ _LINE_ _, msg)
+#define int_error(msg) handle_error(__FILE__, __LINE__, msg)
 void handle_error(const char * file, int lineno, const char * msg);
 
 void init_OpenSSL(void);

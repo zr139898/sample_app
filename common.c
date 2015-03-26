@@ -4,6 +4,8 @@
 // initializing the library, and loading error strings.
 
 #include "common.h"
+#include "ssl_multithread.h"
+#include <stdio.h>
 
 void handle_error(const char * file, int lineno, const char * msg) {
     fprintf(stderr, "** %s:%i %s\n", file, lineno, msg);
@@ -12,7 +14,7 @@ void handle_error(const char * file, int lineno, const char * msg) {
 }
 
 void init_OpenSSL(void) {
-    if (!THREAD_setup() || SSL_library_init()) {
+    if (!THREAD_setup() || !SSL_library_init()) {
         fprintf(stderr, "** OpenSSL initialization failed!\n");
         exit(-1);
     }

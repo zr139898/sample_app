@@ -4,16 +4,18 @@
 // until EOF is reached, and sends to the server.
 
 #include "common.h"
+#include <string.h>
 
 void do_client_loop(BIO * conn) {
-    int err, written;
+    int err, nwritten;
     char buf[80];
 
     while (1) {
         if (!fgets(buf, sizeof(buf), stdin)) break;
-
+        
         for (nwritten = 0; nwritten < sizeof(buf); nwritten += err) {
             err = BIO_write(conn, buf + nwritten, strlen(buf) - nwritten);
+            printf("nwritten = %d, sizeof(buf) = %d, strlen(buf) = %d, err = %d\n", nwritten, sizeof(buf), strlen(buf), err);
             if (err <= 0) return;
         }
     }

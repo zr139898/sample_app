@@ -18,7 +18,7 @@ void do_server_loop(BIO * conn) {
         }
         fwrite(buf, 1, nread, stdout);
     }
-    while (error > 0)  continue;
+    while (err > 0);
 }
 
 void THREAD_CC server_thread(void * arg) {
@@ -49,14 +49,23 @@ int main(int argc, int * argv[]) {
         int_error("Error creating server socket");
     if (BIO_do_accept(acc) <= 0)
         int_error("Error binding server socket");
+    // BIO_do_accept() will block and wait for a remote connection.
     while (1) {
         if (BIO_do_accept(acc) <= 0)
             int_error("Error accepting connection");
-
+        // get the client BIO
         client = BIO_pop(acc);
+        // create a new thread to handle the new connection,
+        // The thread will call do_server_loop with the client BIO.
+        // THREAD_CREATE(tid, entry, arg);
+        // tid is the id of the new thread.
+        // server_thread is the function defined above, which will call
+        // do_server_loop() with the client BIO.
         THREAD_CREATE(tid, server_thread, client);
     }
     BIO_free(acc);
     return 0;
 }
+
+
 
