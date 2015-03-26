@@ -21,3 +21,6 @@ void init_OpenSSL(void) {
     SSL_load_error_strings();
 }
 
+void seed_prng() {
+    RAND_load_file("/dev/urandom", 1024);
+}
