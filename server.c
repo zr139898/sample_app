@@ -10,16 +10,26 @@
 
 #include "common.h"
 
+#define CAFILE "rootcert.pem"
+#define CADIR NULL
 #define CERTFILE "server.pem"
 
 SSL_CTX * setup_server_ctx(void) {
     SSL_CTX * ctx;
 
     ctx = SSL_CTX_new(SSLv23_method());
+    if (SSL_CTX_load_verify_locations(ctx, CAFILE, CADIR) != 1)
+        int_error("Error loading CA file and/or directory");
+    if (SSL_CTX_set_default_verify_paths(ctx) != 1)
+        int_error("Error loading default CA file and/or directory");
     if (SSL_CTX_use_certificate_chain_file(ctx, CERTFILE) != 1)
         int_error("Error loading certificate from file");
     if (SSL_CTX_use_PrivateKey_file(ctx, CERTFILE, SSL_FILETYPE_PEM) != 1)
         int_error("Error loading private key from file");
+    // a client cert is required.
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
+                       verify_callback);
+    SSL_CTX_set_verify_depth(ctx, 4);
     return ctx;
 }
 
@@ -32,7 +42,7 @@ int do_server_loop(SSL *ssl) {
             err = SSL_read(ssl, buf + nread, sizeof(buf) - nread);
             if (err <= 0) break;
         }
-        fwrite(buf, 1, nread, stdout);
+        fprintf(stdout, "%s", buf);
     }
     while (err > 0);
     // use a call to SSL_get_shutdown to check into the error status
@@ -46,7 +56,8 @@ int do_server_loop(SSL *ssl) {
 
 void THREAD_CC server_thread(void * arg) {
     SSL * ssl = (SSL *) arg;
-
+    long err;
+    
 #ifndef WIN32
     pthread_detach(pthread_self());
 #endif
@@ -54,6 +65,11 @@ void THREAD_CC server_thread(void * arg) {
     // to perform the SSL handshake.
     if (SSL_accept(ssl) <= 0)
         int_error("Error accepting SSL connection");
+    if ((err = post_connection_check(ssl, CLIENT)) != X509_V_OK) {
+        fprintf(stderr, "-Error: peer certificate: %s\n",
+                X509_verify_cert_error_string(err));
+        int_error("Error checking SSL object after connection");
+    }
     fprintf(stderr, "SSL Connection opened\n");
     if (do_server_loop(ssl))
         SSL_shutdown(ssl);
@@ -67,7 +83,7 @@ void THREAD_CC server_thread(void * arg) {
 #endif
 }
 
-int main(int argc, int * argv[]) {
+int main(int argc, char * argv[]) {
     BIO * acc, * client;
     THREAD_TYPE tid;
     SSL * ssl;
@@ -91,6 +107,7 @@ int main(int argc, int * argv[]) {
         client = BIO_pop(acc);
         if (!(ssl = SSL_new(ctx)))
             int_error("Error creating SSL context");
+        SSL_set_accept_state(ssl);
         SSL_set_bio(ssl, client, client);
         // create a new thread to handle the new connection,
         // The thread will call do_server_loop with the client BIO.
@@ -98,7 +115,7 @@ int main(int argc, int * argv[]) {
         // tid is the id of the new thread.
         // server_thread is the function defined above, which will call
         // do_server_loop() with the client BIO.
-        THREAD_CREATE(tid, server_thread, ssl);
+        THREAD_CREATE(tid, (void *)server_thread, ssl);
     }
     SSL_CTX_free(ctx);
     BIO_free(acc);

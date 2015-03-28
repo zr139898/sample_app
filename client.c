@@ -7,6 +7,8 @@
 
 #include "common.h"
 
+#define CAFILE "rootcert.pem"
+#define CADIR NULL
 // both the client cert and client PRK are contained in client.pem
 #define CERTFILE "client.pem"
 
@@ -15,10 +17,23 @@
 // This example prints errors and exits if anything goes wrong.
 SSL_CTX * setup_client_ctx(void) {
     SSL_CTX * ctx = SSL_CTX_new(SSLv23_method());
+    // load the trusted certs
+    if (SSL_CTX_load_verify_locations(ctx, CAFILE, CADIR) != 1)
+        int_error("Error loading CA file and/or directory");
+    // load these defaults only when the application will run on a trusted
+    // system and when the application itself needs to incorporate these extra
+    // certs.
+    if (SSL_CTX_set_default_verify_paths(ctx) != 1)
+        int_error("Error loading default CA file and/or directory");
     if (SSL_CTX_use_certificate_chain_file(ctx, CERTFILE) != 1)
         int_error("Error loading certificate");
     if (SSL_CTX_use_PrivateKey_file(ctx, CERTFILE, SSL_FILETYPE_PEM) != 1)
         int_error("Error loading private key from file");
+    // set the verification mode, and assign the verification filter callback
+    // When implement SSL clients, the verification mode should always include
+    // SSL_VERIFY_PEER.
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verify_callback);
+    SSL_CTX_set_verify_depth(ctx, 4);
     return ctx;
 }
 
@@ -35,7 +50,7 @@ int do_client_loop(SSL * ssl) {
         if (!fgets(buf, sizeof(buf), stdin))
             break;
         for (nwritten = 0; nwritten < sizeof(buf); nwritten += err) {
-            err = SSL_write(ssl, buf + nwritten, strlen(buf) - nwritten);
+            err = SSL_write(ssl, buf + nwritten, sizeof(buf) - nwritten);
             if (err <= 0) return 0;
         }
     }
@@ -46,14 +61,16 @@ int main(int argc, char * argv[]) {
     BIO * conn;
     SSL * ssl;
     SSL_CTX * ctx;
-
+    long err;
+    
     init_OpenSSL();
     seed_prng();
 
     ctx = setup_client_ctx();
 
     conn = BIO_new_connect(SERVER ":" PORT);
-    if (!conn) int_error("Error creating connection BIO");
+    if (!conn)
+        int_error("Error creating connection BIO");
 
     if (BIO_do_connect(conn) <= 0)
         int_error("Error connecting to remote machine");
@@ -72,7 +89,14 @@ int main(int argc, char * argv[]) {
     // application on the other end of the underlying BIO.
     if (SSL_connect(ssl) <= 0)
         int_error("Error connecting SSL object");
-
+    // The call to post_connection_check asserts that the server we are
+    // connected with did present a cert and the cert it provided has
+    // "splat.zork.org" as the FQDN.
+    if ((err = post_connection_check(ssl, SERVER)) != X509_V_OK) {
+        fprintf(stderr, "-Error: peer certificate: %s\n",
+                X509_verify_cert_error_string(err));
+        int_error("Error checking SSL object after connection");
+    }
     fprintf(stderr, "SSL Connection opened\n");
     if (do_client_loop(ssl))
         SSL_shutdown(ssl);
