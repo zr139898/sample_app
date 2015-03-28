@@ -10,9 +10,57 @@
 
 #include "common.h"
 
+#define CIPHER_LIST "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH"
 #define CAFILE "rootcert.pem"
 #define CADIR NULL
 #define CERTFILE "server.pem"
+
+DH * dh512 = NULL;
+DH * dh1024 = NULL;
+
+// reads the DH params from the files and loads them into the global params.
+void init_dhparams(void) {
+    BIO * bio;
+
+    bio = BIO_new_file("dh512.pem", "r");
+    if (!bio)
+        int_error("Error opening file dh512.pem");
+    dh512 = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+    if (!dh512)
+        int_error("Error reading DH parameters from dh512.pem");
+    BIO_free(bio);
+
+    bio = BIO_new_file("dh1024.pem", "r");
+    if (!bio)
+        int_error("Error opening file dh1024.pem");
+    dh1024 = PEM_read_bio_DHparams(bio, NULL, NULL, NULL);
+    if (!dh1024)
+        int_error("Error reading DH parameters from dh1024.pem");
+    BIO_free(bio);
+}
+
+// simply switches on the required key size and returns either a 512-bit DH
+// params or a 1024-bit DH params.
+// This function intertionally does not try to perform any on-the-fly
+// generation of params.
+DH * tmp_dh_callback(SSL * ssl, int is_export, int keylength) {
+    DH * ret;
+
+    if (!dh512 || !dh1024)
+        init_dhparams();
+
+    switch (keylength) {
+    case 512:
+        ret = dh512;
+        break;
+    case 1024:
+    default:
+        //generating DH params is too costly to do on the fly
+        ret = dh1024;
+        break;
+    }
+    return ret;
+}
 
 SSL_CTX * setup_server_ctx(void) {
     SSL_CTX * ctx;
@@ -30,6 +78,12 @@ SSL_CTX * setup_server_ctx(void) {
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER|SSL_VERIFY_FAIL_IF_NO_PEER_CERT,
                        verify_callback);
     SSL_CTX_set_verify_depth(ctx, 4);
+    // SSL_OP_SINGLE_DH_USE causes the private part of the DH key exchange
+    // to be recomputed for each client connecting.
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2 | SSL_OP_SINGLE_DH_USE);
+    SSL_CTX_set_tmp_dh_callback(ctx, tmp_dh_callback);
+    if (SSL_CTX_set_cipher_list(ctx, CIPHER_LIST) != 1)
+        int_error("Error setting cipher list (no valid ciphers)");
     return ctx;
 }
 
@@ -115,7 +169,7 @@ int main(int argc, char * argv[]) {
         // tid is the id of the new thread.
         // server_thread is the function defined above, which will call
         // do_server_loop() with the client BIO.
-        THREAD_CREATE(tid, (void *)server_thread, ssl);
+        THREAD_CREATE(tid, server_thread, ssl);
     }
     SSL_CTX_free(ctx);
     BIO_free(acc);

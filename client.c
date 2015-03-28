@@ -7,6 +7,10 @@
 
 #include "common.h"
 
+// This list is composed of all cipher suites in order of strength except
+// those containing anonymous DH ciphers, low bit-size ciphers,
+// export-crippled ciphers, or the MD5 hash algorithm.
+#define CIPHER_LIST "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH"
 #define CAFILE "rootcert.pem"
 #define CADIR NULL
 // both the client cert and client PRK are contained in client.pem
@@ -34,6 +38,9 @@ SSL_CTX * setup_client_ctx(void) {
     // SSL_VERIFY_PEER.
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, verify_callback);
     SSL_CTX_set_verify_depth(ctx, 4);
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2);
+    if (SSL_CTX_set_cipher_list(ctx, CIPHER_LIST) != 1)
+        int_error("Error setting cipher list (no valid ciphers)");
     return ctx;
 }
 
@@ -78,7 +85,7 @@ int main(int argc, char * argv[]) {
     // placed in the SSL_CTX to the newly created object.
     if (!(ssl = SSL_new(ctx)))
         int_error("Error creating an SSL context");
-    // SSL objects an perform SSL functions on top of many different
+    // an SSL objects perform SSL functions on top of many different
     // types of I/O methods, we must specify a BIO for our object to
     // use. Through a call to SSL_set_bio.
     // Since SSL objects are robust enough to operate on two one-way
